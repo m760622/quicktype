@@ -26,6 +26,7 @@ import {
     makeTypeAttributesInferred
 } from "./TypeAttributes";
 import { JSONSchema, JSONSchemaStore } from "./JSONSchemaStore";
+import { ErrorMessageWithInfo, messageAssert } from "./Messages";
 
 export enum PathElementKind {
     Root,
@@ -106,7 +107,11 @@ export class Ref {
 
     constructor(addressURI: uri.URI | undefined, readonly path: List<PathElement>) {
         if (addressURI !== undefined) {
-            assert(addressURI.fragment() === "", `Ref URI with fragment is not allowed: ${addressURI.toString()}`);
+            messageAssert(
+                addressURI.fragment() === "",
+                ErrorMessageWithInfo.RefWithFragmentNotAllowed,
+                addressURI.toString()
+            );
             this.addressURI = addressURI.clone().normalize();
         } else {
             this.addressURI = undefined;
@@ -495,7 +500,11 @@ export async function addTypesInSchema(
         return typeBuilder.getUniqueClassType(attributes, true, props);
     }
 
-    async function makeMap(loc: Location, typeAttributes: TypeAttributes, additional: StringMap): Promise<[TypeRef, TypeRef]> {
+    async function makeMap(
+        loc: Location,
+        typeAttributes: TypeAttributes,
+        additional: StringMap
+    ): Promise<[TypeRef, TypeRef]> {
         loc = loc.push("additionalProperties");
         const valuesType = await toType(additional, loc, singularizeTypeNames(typeAttributes));
         return [typeBuilder.getMapType(valuesType), valuesType];
@@ -522,7 +531,7 @@ export async function addTypesInSchema(
             }
             return typeBuilder.getStringType(inferredAttributes, undefined);
         }
-    
+
         async function makeArrayType(): Promise<TypeRef> {
             if (schema.items !== undefined) {
                 loc = loc.push("items");
@@ -564,7 +573,13 @@ export async function addTypesInSchema(
 
             if (schema.properties !== undefined) {
                 typesInUnion.push(
-                    await makeClass(loc, inferredAttributes, checkStringMap(schema.properties), required, additionalPropertiesType)
+                    await makeClass(
+                        loc,
+                        inferredAttributes,
+                        checkStringMap(schema.properties),
+                        required,
+                        additionalPropertiesType
+                    )
                 );
             }
 
@@ -573,7 +588,7 @@ export async function addTypesInSchema(
             }
             return typesInUnion;
         }
-    
+
         async function makeTypesFromCases(cases: any, kind: string): Promise<TypeRef[]> {
             if (!Array.isArray(cases)) {
                 return panic(`Cases are not an array: ${cases}`);
@@ -610,7 +625,7 @@ export async function addTypesInSchema(
                         predicate = (x: any) => x === null;
                         break;
                     case "integer":
-                        predicate = (x: any) => typeof x === "number" && x === Math.floor(x)
+                        predicate = (x: any) => typeof x === "number" && x === Math.floor(x);
                         break;
                     default:
                         predicate = (x: any) => typeof x === name;
@@ -624,8 +639,16 @@ export async function addTypesInSchema(
 
         const includeObject = enumArray === undefined && (typeSet === undefined || typeSet.has("object"));
         const includeArray = enumArray === undefined && (typeSet === undefined || typeSet.has("array"));
-        const needStringEnum = includePrimitiveType("string") && enumArray !== undefined && enumArray.find((x: any) => typeof x === "string") !== undefined;
-        const needUnion = typeSet !== undefined || schema.properties !== undefined || schema.additionalProperties !== undefined || schema.items !== undefined || enumArray !== undefined;
+        const needStringEnum =
+            includePrimitiveType("string") &&
+            enumArray !== undefined &&
+            enumArray.find((x: any) => typeof x === "string") !== undefined;
+        const needUnion =
+            typeSet !== undefined ||
+            schema.properties !== undefined ||
+            schema.additionalProperties !== undefined ||
+            schema.items !== undefined ||
+            enumArray !== undefined;
 
         const intersectionType = typeBuilder.getUniqueIntersectionType(typeAttributes, undefined);
         await setTypeForLocation(loc, intersectionType);
@@ -634,7 +657,12 @@ export async function addTypesInSchema(
         if (needUnion) {
             const unionTypes: TypeRef[] = [];
 
-            for (const [name, kind] of [["null", "null"], ["number", "double"], ["integer", "integer"], ["boolean", "bool"]] as [string, PrimitiveTypeKind][]) {
+            for (const [name, kind] of [
+                ["null", "null"],
+                ["number", "double"],
+                ["integer", "integer"],
+                ["boolean", "bool"]
+            ] as [string, PrimitiveTypeKind][]) {
                 if (!includePrimitiveType(name)) continue;
 
                 unionTypes.push(typeBuilder.getPrimitiveType(kind));
@@ -652,7 +680,7 @@ export async function addTypesInSchema(
                 unionTypes.push(await makeArrayType());
             }
             if (includeObject) {
-                unionTypes.push(...await makeObjectTypes())
+                unionTypes.push(...(await makeObjectTypes()));
             }
 
             types.push(typeBuilder.getUniqueUnionType(inferredAttributes, OrderedSet(unionTypes)));
@@ -667,7 +695,7 @@ export async function addTypesInSchema(
             });
             types.push(await toType(target, newLoc, attributes));
         }
-        
+
         if (schema.allOf !== undefined) {
             types.push(...(await makeTypesFromCases(schema.allOf, "allOf")));
         }
