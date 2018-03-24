@@ -7,7 +7,6 @@ import { GraphRewriteBuilder, TypeRef, StringTypeMapping } from "./TypeBuilder";
 import { assert, panic } from "./Support";
 import { TypeGraph } from "./TypeGraph";
 import { unifyTypes, unionBuilderForUnification } from "./UnifyClasses";
-import { combineTypeAttributes } from "./TypeAttributes";
 
 const REQUIRED_OVERLAP = 3 / 4;
 
@@ -143,7 +142,7 @@ export function combineClasses(
             clique,
             attributes,
             builder,
-            unionBuilderForUnification(builder, false, false, conflateNumbers),
+            unionBuilderForUnification(builder, false, false, false, conflateNumbers),
             conflateNumbers,
             forwardingRef
         );

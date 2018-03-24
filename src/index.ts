@@ -233,16 +233,16 @@ export class Run {
             graph.printGraph();
         }
 
+        let unionsDone = false;
         if (haveSchemas) {
             let intersectionsDone = false;
-            let unionsDone = false;
             do {
                 const graphBeforeRewrites = graph;
                 if (!intersectionsDone) {
                     [graph, intersectionsDone] = resolveIntersections(graph, stringTypeMapping);
                 }
                 if (!unionsDone) {
-                    [graph, unionsDone] = flattenUnions(graph, stringTypeMapping, conflateNumbers);
+                    [graph, unionsDone] = flattenUnions(graph, stringTypeMapping, conflateNumbers, true);
                 }
 
                 if (graph === graphBeforeRewrites) {
@@ -252,6 +252,8 @@ export class Run {
         }
 
         graph = replaceObjectType(graph, stringTypeMapping, conflateNumbers);
+        [graph, unionsDone] = flattenUnions(graph, stringTypeMapping, conflateNumbers, false);
+        assert(unionsDone, "We should never have to do more than one union flattening after replacing object types");
 
         if (this._options.findSimilarClassesSchemaURI !== undefined) {
             return graph;

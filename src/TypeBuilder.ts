@@ -988,14 +988,12 @@ export abstract class UnionBuilder<TBuilder extends TypeBuilder, TArrayData, TOb
                 return this.typeBuilder.getStringType(typeAttributes, undefined, forwardingRef);
             case "enum":
                 return this.makeEnum(typeProvider.enumCases, typeProvider.enumCaseMap, typeAttributes, forwardingRef);
-            case "class":
+            case "object":
                 return this.makeObject(typeProvider.objectData, typeAttributes, forwardingRef);
             case "array":
                 return this.makeArray(typeProvider.arrayData, typeAttributes, forwardingRef);
-            case "object":
-                return panic("We don't support the full object type yet");
             default:
-                if (kind === "union" || kind === "map" || kind === "intersection") {
+                if (kind === "union" || kind === "class" || kind === "map" || kind === "intersection") {
                     return panic(`getMemberKinds() shouldn't return ${kind}`);
                 }
                 return assertNever(kind);

@@ -412,6 +412,13 @@ export class MapType extends ObjectType {
     }
 }
 
+export function assertIsObject(t: Type): ObjectType {
+    if (t instanceof ObjectType || t instanceof MapType || t instanceof ClassType) {
+        return t;
+    }
+    return panic("Supposed object type is not an object type");
+}
+
 export function assertIsClass(t: Type): ClassType {
     if (!(t instanceof ClassType)) {
         return panic("Supposed class type is not a class type");
