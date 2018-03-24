@@ -252,8 +252,9 @@ export class Run {
         }
 
         graph = replaceObjectType(graph, stringTypeMapping, conflateNumbers);
-        [graph, unionsDone] = flattenUnions(graph, stringTypeMapping, conflateNumbers, false);
-        assert(unionsDone, "We should never have to do more than one union flattening after replacing object types");
+        do {
+            [graph, unionsDone] = flattenUnions(graph, stringTypeMapping, conflateNumbers, false);
+        } while (!unionsDone);
 
         if (this._options.findSimilarClassesSchemaURI !== undefined) {
             return graph;

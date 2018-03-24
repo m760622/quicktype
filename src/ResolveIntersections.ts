@@ -16,7 +16,6 @@ import {
 import {
     IntersectionType,
     Type,
-    ClassType,
     ClassProperty,
     EnumType,
     UnionType,
@@ -25,7 +24,6 @@ import {
     StringType,
     ArrayType,
     matchTypeExhaustive,
-    MapType,
     isPrimitiveStringTypeKind,
     isPrimitiveTypeKind,
     isNumberTypeKind,
@@ -99,11 +97,9 @@ class IntersectionAccumulator
     // properties are allowed anymore.  If _classProperties is
     // undefined, no object types are allowed, in which case
     // _additionalPropertyTypes must also be undefined;
+    private _objectProperties: PropertyMap | undefined = OrderedMap();
+    private _objectAttributes: TypeAttributes = emptyTypeAttributes;
     private _additionalPropertyTypes: OrderedSet<Type> | undefined = OrderedSet();
-    private _additionalPropertyAttributes: TypeAttributes = emptyTypeAttributes;
-
-    private _classProperties: PropertyMap | undefined;
-    private _classAttributes: TypeAttributes = emptyTypeAttributes;
 
     private _lostTypeAttributes: boolean = false;
 
@@ -178,67 +174,50 @@ class IntersectionAccumulator
         }
     }
 
-    private updateMapValueTypesAndClassProperties(members: OrderedSet<Type>): void {
+    private updateObjectProperties(members: OrderedSet<Type>): void {
         const maybeObject = members.find(t => t instanceof ObjectType) as ObjectType | undefined;
-
-        function makeProperties(): PropertyMap {
-            if (maybeClass === undefined) return panic("Didn't we just check for this?");
-            return maybeClass.properties.map(cp => new GenericClassProperty(OrderedSet([cp.type]), cp.isOptional));
-        }
-
-        if (maybeClass !== undefined) {
-            this._classAttributes = combineTypeAttributes(this._classAttributes, maybeClass.getAttributes());
-        }
-        if (maybeMap !== undefined) {
-            this._mapAttributes = combineTypeAttributes(this._mapAttributes, maybeMap.getAttributes());
-        }
-
-        if (maybeMap === undefined && maybeClass === undefined) {
-            // Moving to state 4.
-            this._mapValueTypes = undefined;
-            this._classProperties = undefined;
+        if (maybeObject === undefined) {
+            this._objectProperties = undefined;
+            this._additionalPropertyTypes = undefined;
             return;
         }
 
-        if (this._mapValueTypes !== undefined) {
-            // We're in state 1 or 2.
-            assert(this._classProperties === undefined, "One of _mapValueTypes and _classProperties must be undefined");
+        this._objectAttributes = combineTypeAttributes(this._objectAttributes, maybeObject.getAttributes());
 
-            if (maybeMap !== undefined) {
-                // Moving to state 2.
-                this._mapValueTypes = this._mapValueTypes.add(maybeMap.values);
-            } else {
-                // Moving to state 3.
-
-                this._mapValueTypes = undefined;
-                this._classProperties = makeProperties();
-                this._lostTypeAttributes = true;
-            }
-        } else if (this._classProperties !== undefined) {
-            // We're in state 3.
-            if (maybeMap !== undefined) {
-                this._classProperties = this._classProperties.map(
-                    cp => new GenericClassProperty(cp.typeData.add(maybeMap.values), cp.isOptional)
-                );
-            } else {
-                // Staying in state 3.
-                if (maybeClass === undefined) return panic("Didn't we just check for this?");
-
-                this._classProperties = this._classProperties.mergeWith(
-                    (cp1, cp2) =>
-                        new GenericClassProperty(cp1.typeData.union(cp2.typeData), cp1.isOptional || cp2.isOptional),
-                    makeProperties()
-                );
-            }
-        } else {
-            // We're in state 4.  No way out of state 4.
-            this._lostTypeAttributes = true;
+        if (this._objectProperties === undefined) {
+            assert(this._additionalPropertyTypes === undefined);
+            return;
         }
 
-        assert(
-            this._mapValueTypes === undefined || this._classProperties === undefined,
-            "We screwed up our sacred state machine."
-        );
+        const allPropertyNames = this._objectProperties.keySeq().toOrderedSet().union(maybeObject.properties.keySeq());
+        allPropertyNames.forEach(name => {
+            const existing = defined(this._objectProperties).get(name);
+            const newProperty = maybeObject.properties.get(name);
+
+            if (existing !== undefined && newProperty !== undefined) {
+                const cp = new GenericClassProperty(existing.typeData.add(newProperty.type), existing.isOptional || newProperty.isOptional);
+                this._objectProperties = defined(this._objectProperties).set(name, cp);
+            } else if (existing !== undefined && maybeObject.additionalProperties !== undefined) {
+                const cp = new GenericClassProperty(existing.typeData.add(maybeObject.additionalProperties), existing.isOptional);
+                this._objectProperties = defined(this._objectProperties).set(name, cp);
+            } else if (existing !== undefined) {
+                this._objectProperties = defined(this._objectProperties).remove(name);                
+            } else if (newProperty !== undefined && this._additionalPropertyTypes !== undefined) {
+                const types = this._additionalPropertyTypes.add(newProperty.type);
+                this._objectProperties = defined(this._objectProperties).set(name, new GenericClassProperty(types, newProperty.isOptional));
+            } else if (newProperty !== undefined) {
+                this._objectProperties = defined(this._objectProperties).remove(name);
+            } else {
+                return panic("This should not happen");
+            }
+        });
+
+        if (this._additionalPropertyTypes !== undefined && maybeObject.additionalProperties) {
+            this._additionalPropertyTypes = this._additionalPropertyTypes.add(maybeObject.additionalProperties);
+        } else if (this._additionalPropertyTypes !== undefined || maybeObject.additionalProperties) {
+            this._additionalPropertyTypes = undefined;
+            this._lostTypeAttributes = true;
+        }
     }
 
     private addUnionSet(members: OrderedSet<Type>): void {
@@ -246,7 +225,7 @@ class IntersectionAccumulator
         this.updateOtherPrimitiveTypes(members);
         this.updateEnumCases(members);
         this.updateArrayItemTypes(members);
-        this.updateMapValueTypesAndClassProperties(members);
+        this.updateObjectProperties(members);
     }
 
     addType(t: Type): TypeAttributes {
@@ -290,13 +269,12 @@ class IntersectionAccumulator
     }
 
     get objectData(): [PropertyMap, OrderedSet<Type> | undefined] | undefined {
-        if (this._classProperties === undefined && this._mapValueTypes === undefined) {
+        if (this._objectProperties === undefined) {
+            assert(this._additionalPropertyTypes === undefined);
             return undefined;
         }
 
-        const classProperties =
-            this._classProperties === undefined ? (OrderedMap() as PropertyMap) : this._classProperties;
-        return [classProperties, this._mapValueTypes];
+        return [this._objectProperties, this._additionalPropertyTypes];
     }
 
     get enumCases(): string[] {
@@ -349,12 +327,9 @@ class IntersectionAccumulator
             this._lostTypeAttributes = true;
         }
 
-        const objectAttributes = combineTypeAttributes(this._classAttributes, this._mapAttributes);
-        if (this._mapValueTypes !== undefined) {
-            kinds = kinds.set("map", objectAttributes);
-        } else if (this._classProperties !== undefined) {
-            kinds = kinds.set("class", objectAttributes);
-        } else if (!objectAttributes.isEmpty()) {
+        if (this._objectProperties !== undefined) {
+            kinds = kinds.set("object", this._objectAttributes);
+        } else if (!this._objectAttributes.isEmpty()) {
             this._lostTypeAttributes = true;
         }
 
